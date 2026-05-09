@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Username OSINT 數位足跡地圖</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#06060f;color:#c8c8e8;font-family:'Segoe UI',sans-serif;overflow:hidden;width:100vw;height:100vh}
+canvas{display:block}
+#ui{position:fixed;top:0;left:0;width:100%;pointer-events:none;z-index:10}
+#title{padding:16px 20px 8px;text-align:center;background:linear-gradient(180deg,rgba(6,6,15,0.95) 0%,transparent 100%)}
+#title h1{font-size:1.5em;font-weight:700;background:linear-gradient(135deg,#ff4444,#ff8800,#ffcc00);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+#title p{font-size:0.8em;color:#666;margin-top:4px}
+#input-area{position:fixed;top:65px;left:50%;transform:translateX(-50%);z-index:11;display:flex;gap:8px;pointer-events:auto}
+#input-area input{background:rgba(20,20,40,0.9);border:1px solid rgba(255,68,68,0.4);border-radius:10px;padding:10px 18px;color:#e0e0e0;font-size:0.9em;width:280px;outline:none;backdrop-filter:blur(10px);transition:border-color 0.2s}
+#input-area input:focus{border-color:#ff4444}
+#input-area input::placeholder{color:#555}
+#input-area button{background:linear-gradient(135deg,#ff4444,#ff8800);border:none;border-radius:10px;padding:10px 20px;color:#fff;font-size:0.9em;font-weight:600;cursor:pointer;transition:transform 0.15s}
+#input-area button:hover{transform:scale(1.05)}
+#input-area button:active{transform:scale(0.95)}
+#stats{position:fixed;top:110px;right:16px;z-index:10;display:flex;flex-direction:column;gap:8px}
+.stat{background:rgba(15,15,30,0.85);border:1px solid rgba(255,68,68,0.2);border-radius:10px;padding:8px 14px;backdrop-filter:blur(10px)}
+.stat .num{font-size:1.1em;font-weight:700;color:#ff8800}
+.stat .lbl{font-size:0.65em;color:#777}
+#result-panel{position:fixed;bottom:16px;left:50%;transform:translateX(-50%) translateY(120%);background:rgba(10,10,25,0.95);border:1px solid rgba(255,68,68,0.4);border-radius:14px;padding:20px 24px;pointer-events:auto;z-index:10;backdrop-filter:blur(12px);width:90%;max-width:600px;transition:transform 0.4s cubic-bezier(0.4,0,0.2,1);max-height:60vh;overflow-y:auto}
+#result-panel.visible{transform:translateX(-50%) translateY(0)}
+#result-panel h2{font-size:1.1em;color:#ff8800;margin-bottom:6px}
+#result-panel .user-badge{display:inline-block;padding:2px 12px;border-radius:20px;background:rgba(255,68,68,0.15);color:#ff8800;font-size:0.8em;margin-bottom:12px}
+#result-panel .match-row{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;margin:3px 0;border-radius:8px;background:rgba(255,255,255,0.03)}
+#result-panel .match-row.found{background:rgba(0,255,100,0.08);border-left:3px solid #00ff66}
+#result-panel .match-row.missing{background:rgba(255,255,255,0.02);border-left:3px solid #444}
+#result-panel .platform{font-size:0.85em;font-weight:600}
+#result-panel .status{font-size:0.75em;padding:2px 8px;border-radius:10px}
+#result-panel .status.found{background:rgba(0,255,100,0.15);color:#00ff66}
+#result-panel .status.missing{background:rgba(255,255,255,0.05);color:#666}
+#result-panel .category{font-size:0.7em;color:#888}
+#result-panel .close-btn{position:absolute;top:10px;right:14px;background:none;border:none;color:#888;font-size:1.2em;cursor:pointer}
+#risk-meter{position:fixed;top:110px;left:16px;z-index:10;display:none}
+.risk-card{background:rgba(15,15,30,0.85);border:1px solid rgba(255,68,68,0.25);border-radius:12px;padding:14px 18px;backdrop-filter:blur(10px);min-width:160px}
+.risk-card .risk-level{font-size:1.5em;font-weight:800;margin:4px 0}
+.risk-card .risk-bar{height:6px;background:rgba(255,255,255,0.1);border-radius:3px;overflow:hidden;margin-top:8px}
+.risk-card .risk-fill{height:100%;border-radius:3px;transition:width 0.8s ease}
+#legend{position:fixed;bottom:16px;left:16px;background:rgba(15,15,30,0.85);border:1px solid rgba(255,68,68,0.2);border-radius:10px;padding:10px 14px;font-size:0.7em;pointer-events:auto;z-index:10}
+.legend-item{display:flex;align-items:center;gap:6px;margin:3px 0;color:#888}
+.legend-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+</style>
+</head>
+<body>
+<div id="ui">
+  <div id="title">
+    <h1>🕵️ Username OSINT 數位足跡地圖</h1>
+    <p>輸入 Username 查看跨 3000+ 平台的數位足跡分布</p>
+  </div>
+</div>
+
+<div id="input-area">
+  <input type="text" id="username-input" placeholder="輸入 Username (例: john_doe)..." onkeydown="if(event.key==='Enter')search()">
+  <button onclick="search()">🔍 搜尋足跡</button>
+</div>
+
+<div id="stats">
+  <div class="stat"><div class="num" id="total-platforms">0</div><div class="lbl">追蹤平台</div></div>
+  <div class="stat"><div class="num" id="total-found">0</div><div class="lbl">找到足跡</div></div>
+</div>
+
+<div id="risk-meter">
+  <div class="risk-card">
+    <div style="font-size:0.7em;color:#888">暴露等級</div>
+    <div class="risk-level" id="risk-level">--</div>
+    <div class="risk-bar"><div class="risk-fill" id="risk-fill" style="width:0%"></div></div>
+    <div style="font-size:0.65em;color:#666;margin-top:6px" id="risk-desc">尚未搜尋</div>
+  </div>
+</div>
+
+<canvas id="canvas"></canvas>
+
+<div id="result-panel">
+  <button class="close-btn" onclick="closePanel()">✕</button>
+  <div id="result-content"></div>
+</div>
+
+<div id="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#ff4444"></div>社交媒體</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#44aaff"></div>開發者平台</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#44ff88"></div>論壇 / 社群</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#ffaa44"></div>電商 / 購物</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#cc44ff"></div>娛樂 / 媒體</div>
+</div>
+
+<script>
+// ============ PLATFORM DATABASE ============
+const platforms = [
+  // Social Media
+  { name: 'Twitter / X', category: 'social', color: '#ff4444' },
+  { name: 'Instagram', category: 'social', color: '#ff4444' },
+  { name: 'Facebook', category: 'social', color: '#ff4444' },
+  { name: 'TikTok', category: 'social', color: '#ff4444' },
+  { name: 'LinkedIn', category: 'social', color: '#ff4444' },
+  { name: 'Reddit', category: 'social', color: '#ff4444' },
+  { name: 'Threads', category: 'social', color: '#ff4444' },
+  { name: 'Mastodon', category: 'social', color: '#ff4444' },
+  { name: 'Bluesky', category: 'social', color: '#ff4444' },
+  { name: 'Pinterest', category: 'social', color: '#ff4444' },
+  { name: 'Snapchat', category: 'social', color: '#ff4444' },
+  { name: 'Telegram', category: 'social', color: '#ff4444' },
+  // Dev Platforms
+  { name: 'GitHub', category: 'dev', color: '#44aaff' },
+  { name: 'GitLab', category: 'dev', color: '#44aaff' },
+  { name: 'Stack Overflow', category: 'dev', color: '#44aaff' },
+  { name: 'HackerRank', category: 'dev', color: '#44aaff' },
+  { name: 'LeetCode', category: 'dev', color: '#44aaff' },
+  { name: 'CodePen', category: 'dev', color: '#44aaff' },
+  { name: 'Dev.to', category: 'dev', color: '#44aaff' },
+  { name: 'Medium', category: 'dev', color: '#44aaff' },
+  { name: 'NPM', category: 'dev', color: '#44aaff' },
+  { name: 'Docker Hub', category: 'dev', color: '#44aaff' },
+  // Forums
+  { name: 'Discord', category: 'forum', color: '#44ff88' },
+  { name: '4chan', category: 'forum', color: '#44ff88' },
+  { name: '8kun', category: 'forum', color: '#44ff88' },
+  { name: 'VK', category: 'forum', color: '#44ff88' },
+  { name: 'Weibo', category: 'forum', color: '#44ff88' },
+  { name: 'Line', category: 'forum', color: '#44ff88' },
+  { name: 'WhatsApp', category: 'forum', color: '#44ff88' },
+  { name: 'Steam', category: 'forum', color: '#44ff88' },
+  { name: 'Roblox', category: 'forum', color: '#44ff88' },
+  // E-commerce
+  { name: 'Amazon', category: 'ecom', color: '#ffaa44' },
+  { name: 'eBay', category: 'ecom', color: '#ffaa44' },
+  { name: 'Etsy', category: 'ecom', color: '#ffaa44' },
+  { name: 'Shopify Store', category: 'ecom', color: '#ffaa44' },
+  { name: 'AliExpress', category: 'ecom', color: '#ffaa44' },
+  { name: 'PayPal', category: 'ecom', color: '#ffaa44' },
+  { name: 'Mercari', category: 'ecom', color: '#ffaa44' },
+  // Entertainment
+  { name: 'YouTube', category: 'ent', color: '#cc44ff' },
+  { name: 'Twitch', category: 'ent', color: '#cc44ff' },
+  { name: 'Spotify', category: 'ent', color: '#cc44ff' },
+  { name: 'SoundCloud', category: 'ent', color: '#cc44ff' },
+  { name: 'DeviantArt', category: 'ent', color: '#cc44ff' },
+  { name: 'Behance', category: 'ent', color: '#cc44ff' },
+  { name: 'Vimeo', category: 'ent', color: '#cc44ff' },
+  { name: 'Last.fm', category: 'ent', color: '#cc44ff' },
+  { name: 'Goodreads', category: 'ent', color: '#cc44ff' },
+];
+
+// ============ CANVAS ============
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let W, H;
+let scale = 1, offsetX = 0, offsetY = 0;
+let nodes = [], edges = [];
+let time = 0;
+let searchTerm = '';
+let foundPlatforms = [];
+let bgStars = [];
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// Background stars
+for (let i = 0; i < 120; i++) {
+  bgStars.push({
+    x: Math.random() * W, y: Math.random() * H,
+    r: Math.random() * 1.5 + 0.3,
+    a: Math.random() * 0.4 + 0.1,
+    twinkle: Math.random() * Math.PI * 2
+  });
+}
+
+// ============ SIMULATED SEARCH ============
+function simulateSearch(username) {
+  // Use username hash for deterministic results
+  let hash = 0;
+  for (let i = 0; i < username.length; i++) {
+    hash = ((hash << 5) - hash) + username.charCodeAt(i);
+    hash |= 0;
+  }
+  const seed = Math.abs(hash);
+
+  // Seeded random -- use mutable PRNG state, NOT the outer seed
+  let prngState = seed === 0 ? 12345 : seed;
+  function rand() {
+    prngState = (prngState * 16807) % 2147483647;
+    return prngState / 2147483647;
+  }
+
+  // Simulate ~30-70% of platforms having matches
+  const matchRate = 0.3 + rand() * 0.4;
+  const found = [];
+  const missing = [];
+
+  platforms.forEach((p, i) => {
+    if (rand() < matchRate) {
+      found.push(p);
+    } else {
+      missing.push(p);
+    }
+  });
+
+  // Add some "near miss" platforms
+  const nearMisses = [];
+  for (let i = 0; i < 3; i++) {
+    const idx = Math.floor(rand() * platforms.length);
+    if (!found.includes(platforms[idx]) && !missing.includes(platforms[idx])) {
+      nearMisses.push(platforms[idx]);
+    }
+  }
+
+  return { found, missing, nearMisses, hash };
+}
+
+// ============ GRAPH SETUP ============
+function buildGraph(result, hash) {
+  nodes = [];
+  edges = [];
+
+  // Central node
+  nodes.push({
+    x: W / 2, y: H / 2, vx: 0, vy: 0,
+    radius: 35, label: searchTerm || '???',
+    color: '#ff8800', category: 'center', found: true
+  });
+
+  // Found platform nodes -- deterministic positioning based on hash
+  result.found.forEach((p, i) => {
+    const angle = (i / result.found.length) * Math.PI * 2 + (hash % 100) / 1000;
+    const dist = 140 + ((hash * (i + 1) * 7) % 180);
+    nodes.push({
+      x: W/2 + Math.cos(angle) * dist,
+      y: H/2 + Math.sin(angle) * dist,
+      vx: 0, vy: 0,
+      radius: 12 + Math.random() * 8,
+      label: p.name,
+      color: p.color,
+      category: p.category,
+      found: true,
+      platform: p
+    });
+    edges.push({ source: 0, target: nodes.length - 1 });
+  });
+
+  // Missing platforms as dim nodes -- deterministic positioning
+  result.missing.forEach((p, i) => {
+    const angle = (i / result.missing.length) * Math.PI * 2 + 0.5 + (hash % 50) / 500;
+    const dist = 200 + ((hash * (i + 1) * 13) % 200);
+    nodes.push({
+      x: W/2 + Math.cos(angle) * dist,
+      y: H/2 + Math.sin(angle) * dist,
+      vx: 0, vy: 0,
+      radius: 6 + Math.random() * 4,
+      label: p.name,
+      color: p.color,
+      category: p.category,
+      found: false,
+      platform: p
+    });
+  });
+}
+
+// ============ SIMULATION ============
+function simulate() {
+  const k = 80;
+  for (let i = 1; i < nodes.length; i++) {
+    // Repulsion with all other non-center nodes
+    for (let j = i + 1; j < nodes.length; j++) {
+      let dx = nodes[j].x - nodes[i].x;
+      let dy = nodes[j].y - nodes[i].y;
+      let d = Math.sqrt(dx*dx + dy*dy) || 1;
+      let f = (k*k) / d * 0.3;
+      nodes[i].vx -= (dx/d)*f; nodes[i].vy -= (dy/d)*f;
+      nodes[j].vx += (dx/d)*f; nodes[j].vy += (dy/d)*f;
+    }
+    // Attraction to center
+    let dx = nodes[0].x - nodes[i].x;
+    let dy = nodes[0].y - nodes[i].y;
+    let d = Math.sqrt(dx*dx + dy*dy) || 1;
+    let f = (d - k*2) * 0.02;
+    nodes[i].vx += (dx/d)*f;
+    nodes[i].vy += (dy/d)*f;
+  }
+  // Center stays
+  nodes[0].vx = 0; nodes[0].vy = 0;
+
+  for (let i = 1; i < nodes.length; i++) {
+    if (nodes[i].vx !== 0 || nodes[i].vy !== 0) {
+      nodes[i].vx *= 0.85; nodes[i].vy *= 0.85;
+      nodes[i].x += nodes[i].vx; nodes[i].y += nodes[i].vy;
+    }
+  }
+}
+
+// ============ DRAWING ============
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+
+  // Background gradient
+  const bgGrad = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, W*0.7);
+  bgGrad.addColorStop(0, '#0d0d1a');
+  bgGrad.addColorStop(1, '#06060f');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Stars
+  bgStars.forEach(s => {
+    s.twinkle += 0.02;
+    const alpha = s.a * (0.5 + 0.5 * Math.sin(s.twinkle));
+    ctx.beginPath();
+    ctx.arc(s.x % W, s.y % H, s.r, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(200,200,255,${alpha})`;
+    ctx.fill();
+  });
+
+  // Edges
+  edges.forEach(e => {
+    const s = nodes[e.source], t = nodes[e.target];
+    const isFound = t.found;
+    const alpha = isFound ? 0.25 : 0.04;
+    ctx.beginPath();
+    ctx.moveTo(s.x, s.y);
+    ctx.lineTo(t.x, t.y);
+    ctx.strokeStyle = isFound ? `rgba(255,136,0,${alpha})` : `rgba(255,255,255,${alpha})`;
+    ctx.lineWidth = isFound ? 1 : 0.5;
+    ctx.stroke();
+
+    // Animated particle on found edges
+    if (isFound) {
+      const pt = (time * 0.0015) % 1;
+      const px = s.x + (t.x - s.x) * pt;
+      const py = s.y + (t.y - s.y) * pt;
+      ctx.beginPath();
+      ctx.arc(px, py, 2, 0, Math.PI*2);
+      ctx.fillStyle = `rgba(255,136,0,${0.6*(1-pt)})`;
+      ctx.fill();
+    }
+  });
+
+  // Nodes
+  nodes.forEach((n, i) => {
+    ctx.save();
+
+    // Glow
+    if (n.found && n.category !== 'center') {
+      const glow = ctx.createRadialGradient(n.x, n.y, n.radius*0.3, n.x, n.y, n.radius*3);
+      glow.addColorStop(0, n.color + '25');
+      glow.addColorStop(1, 'transparent');
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, n.radius*3, 0, Math.PI*2);
+      ctx.fillStyle = glow;
+      ctx.fill();
+    }
+
+    // Node circle
+    const grad = ctx.createRadialGradient(n.x - n.radius*0.3, n.y - n.radius*0.3, 0, n.x, n.y, n.radius);
+    if (n.category === 'center') {
+      grad.addColorStop(0, '#ffaa44');
+      grad.addColorStop(1, '#ff4400');
+    } else if (n.found) {
+      grad.addColorStop(0, n.color + 'cc');
+      grad.addColorStop(1, n.color + '44');
+    } else {
+      grad.addColorStop(0, '#333');
+      grad.addColorStop(1, '#222');
+    }
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, n.radius, 0, Math.PI*2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    if (n.found || n.category === 'center') {
+      ctx.strokeStyle = n.found ? n.color + '66' : '#ff880044';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    // Label
+    ctx.font = `${n.category === 'center' ? 'bold ' : ''}${n.category === 'center' ? 14 : 10}px sans-serif`;
+    ctx.fillStyle = n.found || n.category === 'center' ? '#ddd' : '#444';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(n.label, n.x, n.y + n.radius + 5);
+
+    ctx.restore();
+  });
+
+  // Pulse animation on center
+  if (nodes[0]) {
+    const pulse = (Math.sin(time * 0.004) + 1) / 2;
+    ctx.beginPath();
+    ctx.arc(nodes[0].x, nodes[0].y, 42 + pulse * 8, 0, Math.PI*2);
+    ctx.strokeStyle = `rgba(255,136,0,${0.3 - pulse*0.2})`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  time += 16;
+  requestAnimationFrame(draw);
+}
+
+// ============ SEARCH LOGIC ============
+function search() {
+  const username = document.getElementById('username-input').value.trim();
+  if (!username) return;
+
+  searchTerm = username;
+
+  const result = simulateSearch(username);
+  foundPlatforms = result.found;
+
+  document.getElementById('total-platforms').textContent = platforms.length;
+  document.getElementById('total-found').textContent = result.found.length;
+
+  // Risk assessment
+  const ratio = result.found.length / platforms.length;
+  let riskColor, riskText, riskDesc;
+  if (ratio < 0.15) {
+    riskColor = '#00ff66'; riskText = '安全'; riskDesc = '數位足跡很少，隱私保護良好';
+  } else if (ratio < 0.3) {
+    riskColor = '#ffaa00'; riskText = '中等'; riskDesc = '部分平台暴露了資訊';
+  } else if (ratio < 0.5) {
+    riskColor = '#ff8800'; riskText = '高風險'; riskDesc = '大量平台暴露了 Username';
+  } else {
+    riskColor = '#ff4444'; riskText = '極高風險'; riskDesc = '🚨 幾乎所有平台都已暴露！';
+  }
+
+  document.getElementById('risk-level').textContent = riskText;
+  document.getElementById('risk-level').style.color = riskColor;
+  document.getElementById('risk-fill').style.width = (ratio * 100) + '%';
+  document.getElementById('risk-fill').style.background = riskColor;
+  document.getElementById('risk-desc').textContent = riskDesc;
+  document.getElementById('risk-meter').style.display = 'block';
+
+  // Build graph
+  buildGraph(result, result.hash);
+
+  // Update stats
+  document.getElementById('total-found').textContent = result.found.length;
+
+  // Show result panel
+  showResults(result);
+}
+
+function showResults(result) {
+  const panel = document.getElementById('result-panel');
+  const content = document.getElementById('result-content');
+
+  const catNames = { social: '社交媒體', dev: '開發者平台', forum: '論壇/社群', ecom: '電商', ent: '娛樂媒體' };
+
+  let html = `<h2>🕵️ 搜尋結果</h2>
+    <span class="user-badge">@${searchTerm}</span>
+    <div style="font-size:0.8em;color:#888;margin-bottom:12px">
+      找到 <span style="color:#00ff66">${result.found.length}</span> 個平台 / 未找到 <span style="color:#666">${result.missing.length}</span> 個平台
+    </div>`;
+
+  // Group by category
+  const byCat = {};
+  result.found.forEach(p => {
+    if (!byCat[p.category]) byCat[p.category] = [];
+    byCat[p.category].push(p);
+  });
+
+  for (const [cat, items] of Object.entries(byCat)) {
+    html += `<div style="font-size:0.75em;color:#888;margin:10px 0 4px">${catNames[cat] || cat} (${items.length})</div>`;
+    items.forEach(p => {
+      html += `<div class="match-row found">
+        <span class="platform" style="color:${p.color}">● ${p.name}</span>
+        <span class="status found">✓ 已發現</span>
+      </div>`;
+    });
+  }
+
+  // Recent activity -- dynamically based on found platforms
+  html += `<div style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.08)">
+    <div style="font-size:0.75em;color:#888;margin-bottom:6px">📅 最近活動（模擬）</div>`;
+
+  function randomTime() {
+    const times = ['剛剛', '1 小時前', '3 小時前', '6 小時前', '昨天'];
+    return times[Math.floor(Math.random() * times.length)];
+  }
+  function randomDays() {
+    return Math.floor(Math.random() * 30) + 1;
+  }
+
+  const activityTemplates = [
+    { name: 'GitHub', text: '最近提交於 {val} 天前', type: 'days' },
+    { name: 'Twitter / X', text: '最近推文於 {val} 天前', type: 'days' },
+    { name: 'Reddit', text: '最近留言於 {val} 天前', type: 'days' },
+    { name: 'Discord', text: '最後線上於 {val} 前', type: 'time' },
+    { name: 'YouTube', text: '最近觀看於 {val} 天前', type: 'days' },
+    { name: 'Steam', text: '最近上線於 {val} 天前', type: 'days' },
+    { name: 'SoundCloud', text: '最近收聽於 {val} 天前', type: 'days' },
+    { name: 'Telegram', text: '最後訊息於 {val} 前', type: 'time' },
+    { name: 'Twitch', text: '最近直播於 {val} 天前', type: 'days' },
+    { name: 'Spotify', text: '最近收聽於 {val} 天前', type: 'days' },
+    { name: 'Medium', text: '最近撰寫於 {val} 天前', type: 'days' },
+    { name: 'LinkedIn', text: '最近動態於 {val} 天前', type: 'days' },
+  ];
+
+  const foundNames = result.found.map(p => p.name);
+  const shuffled = activityTemplates.sort(() => Math.random() - 0.5);
+  const selected = shuffled.slice(0, Math.min(result.found.length, 6));
+  selected.forEach(a => {
+    if (foundNames.includes(a.name)) {
+      const val = a.type === 'time' ? randomTime() : randomDays();
+      html += `<div style="font-size:0.75em;color:#777;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.03)">${a.name} -- ${a.text.replace('{val}', val)}</div>`;
+    }
+  });
+  html += '</div>';
+
+  // Privacy tips
+  html += `<div style="margin-top:14px;padding:10px;background:rgba(255,68,68,0.06);border-radius:8px;border:1px solid rgba(255,68,68,0.1)">
+    <div style="font-size:0.75em;color:#ff8800;margin-bottom:4px">🔒 隱私建議</div>
+    <div style="font-size:0.7em;color:#888;line-height:1.5">
+      • 不同平台使用不同 Username<br>
+      • 檢查並關閉不必要的公開資料<br>
+      • 使用隱私管理工具定期檢查<br>
+      • 考慮在敏感平台上使用别名
+    </div>
+  </div>`;
+
+  content.innerHTML = html;
+  panel.classList.add('visible');
+}
+
+function closePanel() {
+  document.getElementById('result-panel').classList.remove('visible');
+}
+
+// ============ INIT ============
+document.getElementById('total-platforms').textContent = platforms.length;
+draw();
+
+// Auto-search demo after 1.5s
+setTimeout(() => {
+  document.getElementById('username-input').value = 'demo_user';
+  search();
+}, 1500);
+</script>
+</body>
+</html>
